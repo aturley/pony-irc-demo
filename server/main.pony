@@ -1,5 +1,21 @@
 use "net"
 
+class IRCMessageHandler
+  fun handle_command(command: String): (String | None) =>
+    try
+      let command_parts = recover val command.split(" ") end
+      let command_verb = command_parts(0) ?
+      let command_args = recover val command_parts.slice(1) end
+      _handle(command_verb, command_args)
+    else
+      // This should never happen because there should be at least one element,
+      // even if it is an empty string.
+      None
+    end
+
+  fun _handle(command: String, command_args: Array[String] val): (String | None) =>
+    None
+
 class IRCParser
   var _current_buffer: String ref = String
 
@@ -15,6 +31,7 @@ class IRCParser
 class MyTCPConnectionNotify is TCPConnectionNotify
   let _out: OutStream
   let _irc_parser: IRCParser = IRCParser
+  let _irc_message_handler: IRCMessageHandler = IRCMessageHandler
 
   new create(out: OutStream) =>
     _out = out
@@ -31,6 +48,13 @@ class MyTCPConnectionNotify is TCPConnectionNotify
       while true do
         let nc = _irc_parser.next_command() ?
         _out.print("Command: " + nc)
+        let response = _irc_message_handler.handle_command(nc)
+        match response
+        | let r: String =>
+          _out.print("Response:" + r)
+        else
+          _out.print("No response")
+        end
       end
     end
     true
