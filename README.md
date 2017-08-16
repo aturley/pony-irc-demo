@@ -22,9 +22,11 @@ Currently using `ponyc` version `0.17.0-12b6a67`.
 
 * Add a command handler to the server.
 
-### NEW
-
 * Add client. Run with `client NICK CHANNEL` where `NICK` is the IRC
   nickname you want to use and `CHANNEL` is the channel you want to
   join to. Connects to `irc.freenode.net`, port 6667. The bot replies
   to messages that are sent to the nick.
+
+### NEW
+
+* Add PING/PONG support to the client. No more getting the boot.

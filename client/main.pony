@@ -40,6 +40,8 @@ class IRCMessageHandler
       if full.contains(_nick) then
         "PRIVMSG #" + _channel + " :life is suffering and pain\r\n"
       end
+    | "PING" =>
+      "PONG " + try command_args(0) ? else "" end+ "\r\n"
     end
 
 class IRCParser
