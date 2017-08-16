@@ -14,8 +14,10 @@ Currently using `ponyc` version `0.17.0-12b6a67`.
 
 ## Progress
 
-### NEW
-
 * The server lives in `server` and can be built by running `ponyc .`
   in that directory. It will write the messages it receives to
   stdout. I'm currently connecting with `Textual`, an OS X IRC client.
+
+### NEW
+
+* Added a shitty command parser.

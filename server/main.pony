@@ -1,7 +1,20 @@
 use "net"
 
+class IRCParser
+  var _current_buffer: String ref = String
+
+  fun ref add(data: Array[U8] val) =>
+    _current_buffer.append(data)
+
+  fun ref next_command(): String ? =>
+    let eom = _current_buffer.find("\r\n") ?
+    let command: String iso = _current_buffer.substring(0, eom)
+    _current_buffer = _current_buffer.substring(eom + 2)
+    consume command
+
 class MyTCPConnectionNotify is TCPConnectionNotify
   let _out: OutStream
+  let _irc_parser: IRCParser = IRCParser
 
   new create(out: OutStream) =>
     _out = out
@@ -12,7 +25,14 @@ class MyTCPConnectionNotify is TCPConnectionNotify
     times: USize)
     : Bool
   =>
-    _out.print(String.from_array(consume data))
+    _out.print("got something")
+    _irc_parser.add(consume data)
+    try
+      while true do
+        let nc = _irc_parser.next_command() ?
+        _out.print("Command: " + nc)
+      end
+    end
     true
 
   fun ref connect_failed(conn: TCPConnection ref) =>
