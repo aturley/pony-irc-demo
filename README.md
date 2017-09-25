@@ -29,11 +29,15 @@ Currently using `ponyc` version `0.17.0-12b6a67`.
 
 * Add PING/PONG support to the client. No more getting the boot.
 
-### NEW
-
 * Add a primitive for generating command strings.
 
 * Separate command processing and handling.
 
 * Better argument parsing. It now looks for a colon to find the last
   argument.
+
+### NEW
+
+* Add an IRCConnection actor that handles TCP Connection details.
+
+* Pass IRCConnection actor to message handler functions.

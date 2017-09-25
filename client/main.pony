@@ -23,18 +23,18 @@ primitive IRCCommand
     "PRIVMSG #" + channel + " :" + message + "\r\n"
 
 trait IRCMessageHandler
-  fun ref connected(conn: TCPConnection tag): (String | None) =>
+  fun ref connected(conn: IRCConnection) =>
     None
 
-  fun ref join(conn: TCPConnection tag, prefix: String, args: Array[String] val): (String | None) =>
+  fun ref join(conn: IRCConnection, prefix: String, args: Array[String] val) =>
     None
 
-  fun ref privmsg(conn: TCPConnection tag, prefix: String, args: Array[String] val): (String | None) =>
+  fun ref privmsg(conn: IRCConnection, prefix: String, args: Array[String] val) =>
     None
 
-  fun ref ping(conn: TCPConnection tag, prefix: String, args: Array[String] val): (String | None) =>
+  fun ref ping(conn: IRCConnection, prefix: String, args: Array[String] val) =>
     try
-      IRCCommand.pong(args(0) ?)
+      conn.write(IRCCommand.pong(args(0) ?))
     else
       None
     end
@@ -45,10 +45,12 @@ class IRCMessageProcessor
   new create(handler: IRCMessageHandler) =>
     _handler = handler
 
-  fun ref connected(conn: TCPConnection tag): (String | None) =>
+  fun ref connected(conn: IRCConnection tag): (String | None) =>
     _handler.connected(conn)
 
-  fun ref process_command(command: String, conn: TCPConnection tag): (String | None) =>
+  fun ref process_command(command: String,
+    irc_connection: IRCConnection): (String | None)
+  =>
     let command_parts = recover val command.split(" ") end
 
     let has_prefix = try command_parts(0) ? (0) ? == ':' else false end
@@ -65,7 +67,8 @@ class IRCMessageProcessor
         recover val command_parts.slice(1) end
       end)
 
-    _process(command_prefix, command_verb, command_args, command, conn)
+    _process(command_prefix, command_verb, command_args, command,
+      irc_connection)
 
   fun _reconstruct_args(args: Array[String] val): Array[String] val =>
     let r_args = recover iso Array[String] end
@@ -84,16 +87,17 @@ class IRCMessageProcessor
     consume r_args
 
   fun ref _process(prefix: String, command: String,
-    command_args: Array[String] val, full: String, conn: TCPConnection tag):
+    command_args: Array[String] val, full: String,
+    irc_connection: IRCConnection):
     (String | None)
   =>
     match command
     | "JOIN" =>
-      _handler.join(conn, prefix, command_args)
+      _handler.join(irc_connection, prefix, command_args)
     | "PRIVMSG" =>
-      _handler.privmsg(conn, prefix, command_args)
+      _handler.privmsg(irc_connection, prefix, command_args)
     | "PING" =>
-      _handler.ping(conn, prefix, command_args)
+      _handler.ping(irc_connection, prefix, command_args)
     end
 
 class IRCParser
@@ -108,25 +112,33 @@ class IRCParser
     _current_buffer = _current_buffer.substring(eom + 2)
     consume command
 
-class MyTCPConnectionNotify is TCPConnectionNotify
-  let _out: OutStream
+actor IRCConnection
+  let _tcp_connection: TCPConnection
+
+  new create(auth: AmbientAuth, irc_message_handler: IRCMessageHandler iso,
+    host: String, port: String)
+  =>
+    _tcp_connection = TCPConnection(auth,
+      recover IRCTCPConnectionNotify(this, consume irc_message_handler) end,
+      "irc.freenode.net", "6667")
+
+  be write(s: String) =>
+    _tcp_connection.write(s)
+
+class IRCTCPConnectionNotify is TCPConnectionNotify
   let _irc_parser: IRCParser = IRCParser
   let _irc_message_processor: IRCMessageProcessor
+  let _irc_connection: IRCConnection
 
-  new create(out: OutStream, message_handler: IRCMessageHandler iso) =>
+  new create(irc_connection: IRCConnection,
+    message_handler: IRCMessageHandler iso)
+  =>
     _irc_message_processor = IRCMessageProcessor(consume message_handler)
-    _out = out
+    _irc_connection = irc_connection
 
   fun ref connected(conn: TCPConnection ref) =>
-    let resp = _irc_message_processor.connected(conn)
-    _out.print("Init: ")
-    match resp
-    | let r: String =>
-      _out.write(r)
-      conn.write(r)
-    else
-      _out.write("No response")
-    end
+    Debug("Init: ")
+    _irc_message_processor.connected(_irc_connection)
 
   fun ref received(
     conn: TCPConnection ref,
@@ -134,20 +146,13 @@ class MyTCPConnectionNotify is TCPConnectionNotify
     times: USize)
     : Bool
   =>
-    _out.print("got something")
+    Debug("got something")
     _irc_parser.add(consume data)
     try
       while true do
         let nc = _irc_parser.next_command() ?
-        _out.print("Command: " + nc)
-        let response = _irc_message_processor.process_command(nc, conn)
-        match response
-        | let r: String =>
-          _out.print("Response: " + r)
-          conn.write(r)
-        else
-          _out.print("No response")
-        end
+        Debug("Command: " + nc)
+        _irc_message_processor.process_command(nc, _irc_connection)
       end
     end
     true
@@ -163,19 +168,22 @@ class MyIRCMessageHandler is IRCMessageHandler
     _nick = nick
     _join_channel = join_channel
 
-  fun ref connected(conn: TCPConnection tag): (String | None) =>
+  fun ref connected(conn: IRCConnection) =>
     let commands = Array[String]
     commands.push(IRCCommand.nick(_nick))
     commands.push(IRCCommand.user("Pony Robot"))
     commands.push(IRCCommand.join(_join_channel))
-    "".join(commands.values())
+    conn.write("".join(commands.values()))
 
-  fun ref privmsg(conn: TCPConnection tag, prefix: String, args: Array[String] val): (String | None) =>
+  fun ref privmsg(conn: IRCConnection tag, prefix: String, args: Array[String] val) =>
     Debug("  PRIVMSG")
     Debug("    prefix: " + prefix)
     Debug("    args:")
     for (i, arg) in args.pairs() do
       Debug("      arg(" + i.string() + "): '" + arg + "'")
+    end
+    if (try args(1)?.contains(_nick) else false end) then
+      conn.write(IRCCommand.privmsg(_join_channel, "hello"))
     end
     None
 
@@ -184,7 +192,7 @@ actor Main
     try
       let nick = env.args(1) ?
       let channel = env.args(2) ?
-      TCPConnection(env.root as AmbientAuth,
-        recover MyTCPConnectionNotify(env.out, recover iso MyIRCMessageHandler(nick, channel) end) end,
+      IRCConnection(env.root as AmbientAuth,
+        recover iso MyIRCMessageHandler(nick, channel) end,
         "irc.freenode.net", "6667")
     end
