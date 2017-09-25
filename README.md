@@ -27,6 +27,13 @@ Currently using `ponyc` version `0.17.0-12b6a67`.
   join to. Connects to `irc.freenode.net`, port 6667. The bot replies
   to messages that are sent to the nick.
 
+* Add PING/PONG support to the client. No more getting the boot.
+
 ### NEW
 
-* Add PING/PONG support to the client. No more getting the boot.
+* Add a primitive for generating command strings.
+
+* Separate command processing and handling.
+
+* Better argument parsing. It now looks for a colon to find the last
+  argument.

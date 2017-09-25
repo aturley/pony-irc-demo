@@ -1,20 +1,54 @@
 use "net"
+use "debug"
 
-class IRCMessageHandler
-  let _nick: String
-  let _channel: String
-  var _my_full_name: String = ""
+primitive IRCCommand
+  fun nick(n: String, old_nick: (None | String) = None): String =>
+    let prefix = match old_nick
+      | let s: String => ":" + s + " "
+      else
+        ""
+      end
+    prefix + "NICK " + n + "\r\n"
 
-  new create(nick: String, channel: String) =>
-    _nick = nick
-    _channel = channel
+  fun user(real_name: String, client: String = "pony_client"): String =>
+    "USER " + client + " 0 * " + ":" + real_name  + "\r\n"
 
-  fun init(): String =>
-    "NICK " + _nick + "\r\n"
-      + "USER pony_client 0 * :SoAndSo WhateverWhatever\r\n"
-      + "JOIN :#" + _channel + "\r\n"
+  fun pong(server: String): String =>
+    "PONG " + server + "\r\n"
 
-  fun ref handle_command(command: String): (String | None) =>
+  fun join(channel: String): String =>
+    "JOIN :#" + channel + "\r\n"
+
+  fun privmsg(channel: String, message: String): String =>
+    "PRIVMSG #" + channel + " :" + message + "\r\n"
+
+trait IRCMessageHandler
+  fun ref connected(conn: TCPConnection tag): (String | None) =>
+    None
+
+  fun ref join(conn: TCPConnection tag, prefix: String, args: Array[String] val): (String | None) =>
+    None
+
+  fun ref privmsg(conn: TCPConnection tag, prefix: String, args: Array[String] val): (String | None) =>
+    None
+
+  fun ref ping(conn: TCPConnection tag, prefix: String, args: Array[String] val): (String | None) =>
+    try
+      IRCCommand.pong(args(0) ?)
+    else
+      None
+    end
+
+class IRCMessageProcessor
+  let _handler: IRCMessageHandler
+
+  new create(handler: IRCMessageHandler) =>
+    _handler = handler
+
+  fun ref connected(conn: TCPConnection tag): (String | None) =>
+    _handler.connected(conn)
+
+  fun ref process_command(command: String, conn: TCPConnection tag): (String | None) =>
     let command_parts = recover val command.split(" ") end
 
     let has_prefix = try command_parts(0) ? (0) ? == ':' else false end
@@ -24,24 +58,42 @@ class IRCMessageHandler
       else
         ("", try command_parts(0) ? else "" end)
       end
-    let command_args = if has_prefix then
-      recover val command_parts.slice(2) end
-    else
-      recover val command_parts.slice(1) end
+    let command_args = _reconstruct_args(
+      if has_prefix then
+        recover val command_parts.slice(2) end
+      else
+        recover val command_parts.slice(1) end
+      end)
+
+    _process(command_prefix, command_verb, command_args, command, conn)
+
+  fun _reconstruct_args(args: Array[String] val): Array[String] val =>
+    let r_args = recover iso Array[String] end
+
+    for (i, arg) in args.pairs() do
+      if (try arg(0) ? else ' ' end) == ':' then
+        let rest = " ".join(args.slice(i).values())
+        // strip off the ":" and put it in the list
+        r_args.push(rest.substring(1))
+        break
+      else
+        r_args.push(arg)
+      end
     end
 
-    _handle(command_prefix, command_verb, command_args, command)
+    consume r_args
 
-  fun ref _handle(prefix: String, command: String, command_args: Array[String] val, full: String): (String | None) =>
+  fun ref _process(prefix: String, command: String,
+    command_args: Array[String] val, full: String, conn: TCPConnection tag):
+    (String | None)
+  =>
     match command
     | "JOIN" =>
-      _my_full_name = prefix
+      _handler.join(conn, prefix, command_args)
     | "PRIVMSG" =>
-      if full.contains(_nick) then
-        "PRIVMSG #" + _channel + " :life is suffering and pain\r\n"
-      end
+      _handler.privmsg(conn, prefix, command_args)
     | "PING" =>
-      "PONG " + try command_args(0) ? else "" end+ "\r\n"
+      _handler.ping(conn, prefix, command_args)
     end
 
 class IRCParser
@@ -59,16 +111,22 @@ class IRCParser
 class MyTCPConnectionNotify is TCPConnectionNotify
   let _out: OutStream
   let _irc_parser: IRCParser = IRCParser
-  let _irc_message_handler: IRCMessageHandler
+  let _irc_message_processor: IRCMessageProcessor
 
-  new create(out: OutStream, nick: String, channel: String) =>
-    _irc_message_handler = IRCMessageHandler(nick, channel)
+  new create(out: OutStream, message_handler: IRCMessageHandler iso) =>
+    _irc_message_processor = IRCMessageProcessor(consume message_handler)
     _out = out
 
   fun ref connected(conn: TCPConnection ref) =>
-    let resp = _irc_message_handler.init()
-    _out.print("Init: " + resp)
-    conn.write(resp)
+    let resp = _irc_message_processor.connected(conn)
+    _out.print("Init: ")
+    match resp
+    | let r: String =>
+      _out.write(r)
+      conn.write(r)
+    else
+      _out.write("No response")
+    end
 
   fun ref received(
     conn: TCPConnection ref,
@@ -82,7 +140,7 @@ class MyTCPConnectionNotify is TCPConnectionNotify
       while true do
         let nc = _irc_parser.next_command() ?
         _out.print("Command: " + nc)
-        let response = _irc_message_handler.handle_command(nc)
+        let response = _irc_message_processor.process_command(nc, conn)
         match response
         | let r: String =>
           _out.print("Response: " + r)
@@ -97,11 +155,36 @@ class MyTCPConnectionNotify is TCPConnectionNotify
   fun ref connect_failed(conn: TCPConnection ref) =>
     None
 
+class MyIRCMessageHandler is IRCMessageHandler
+  let _nick: String
+  let _join_channel: String
+
+  new create(nick: String, join_channel: String) =>
+    _nick = nick
+    _join_channel = join_channel
+
+  fun ref connected(conn: TCPConnection tag): (String | None) =>
+    let commands = Array[String]
+    commands.push(IRCCommand.nick(_nick))
+    commands.push(IRCCommand.user("Pony Robot"))
+    commands.push(IRCCommand.join(_join_channel))
+    "".join(commands.values())
+
+  fun ref privmsg(conn: TCPConnection tag, prefix: String, args: Array[String] val): (String | None) =>
+    Debug("  PRIVMSG")
+    Debug("    prefix: " + prefix)
+    Debug("    args:")
+    for (i, arg) in args.pairs() do
+      Debug("      arg(" + i.string() + "): '" + arg + "'")
+    end
+    None
+
 actor Main
   new create(env: Env) =>
     try
       let nick = env.args(1) ?
       let channel = env.args(2) ?
       TCPConnection(env.root as AmbientAuth,
-        recover MyTCPConnectionNotify(env.out, nick, channel) end, "irc.freenode.net", "6667")
+        recover MyTCPConnectionNotify(env.out, recover iso MyIRCMessageHandler(nick, channel) end) end,
+        "irc.freenode.net", "6667")
     end
