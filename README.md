@@ -41,9 +41,12 @@ Currently using `ponyc` version `0.17.0-12b6a67`.
 
 * Pass IRCConnection actor to message handler functions.
 
-### NEW
-
 * Break apart the application and the library.
 
 * Send `IRCCommand` objects to the `IRCConnection` instead of sending
   it raw `String`s.
+
+### NEW
+
+* Add explicit connect and disconnect from network connection to
+  server.

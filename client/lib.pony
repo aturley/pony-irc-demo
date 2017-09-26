@@ -102,6 +102,9 @@ trait IRCMessageHandler
       None
     end
 
+interface IRCMessageHandlerFactory
+  fun apply(): IRCMessageHandler iso^
+
 class IRCMessageProcessor
   let _handler: IRCMessageHandler
 
@@ -175,18 +178,44 @@ class IRCParser
     _current_buffer = _current_buffer.substring(eom + 2)
     consume command
 
-actor IRCConnection
-  let _tcp_connection: TCPConnection
+actor FakeTCPConnection
+  be write(data: ByteSeq) =>
+    None
 
-  new create(auth: AmbientAuth, irc_message_handler: IRCMessageHandler iso,
+  be dispose() =>
+    None
+
+type FakeOrRealTCPConnection is (FakeTCPConnection | TCPConnection)
+
+actor IRCConnection
+  var _tcp_connection: FakeOrRealTCPConnection
+
+  let _auth: AmbientAuth
+  let _irc_message_handler_factory: IRCMessageHandlerFactory iso
+  let _host: String
+  let _port: String
+
+  new create(auth: AmbientAuth,
+    irc_message_handler_factory: IRCMessageHandlerFactory iso,
     host: String, port: String)
   =>
-    _tcp_connection = TCPConnection(auth,
-      recover IRCTCPConnectionNotify(this, consume irc_message_handler) end,
-      "irc.freenode.net", "6667")
+    _auth = auth
+    _irc_message_handler_factory = consume irc_message_handler_factory
+    _host = host
+    _port = port
+    _tcp_connection = FakeTCPConnection
+
+  be connect() =>
+    _tcp_connection = TCPConnection(_auth,
+      recover IRCTCPConnectionNotify(this, _irc_message_handler_factory()) end,
+      _host, _port)
 
   be send(c: IRCCommand) =>
     _tcp_connection.write(c.command_string())
+
+  be close() =>
+    _tcp_connection.dispose()
+    _tcp_connection = FakeTCPConnection
 
 class IRCTCPConnectionNotify is TCPConnectionNotify
   let _irc_parser: IRCParser = IRCParser
