@@ -3,6 +3,7 @@
 This is a project to develop some code for working with IRC in Pony.
 
 Here's my plan:
+
 0. Look at the IRC protocol.
 1. Write a simple TCP listener that I can connect to with an IRC client that dumps messages.
 2. Try to evolve the code in 1 into something implements enough of the IRC protocol that the client is happy to talk to it.
@@ -36,8 +37,10 @@ Currently using `ponyc` version `0.17.0-12b6a67`.
 * Better argument parsing. It now looks for a colon to find the last
   argument.
 
-### NEW
-
 * Add an IRCConnection actor that handles TCP Connection details.
 
 * Pass IRCConnection actor to message handler functions.
+
+### NEW
+
+* Break apart the application and the library.
