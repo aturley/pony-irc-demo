@@ -44,3 +44,6 @@ Currently using `ponyc` version `0.17.0-12b6a67`.
 ### NEW
 
 * Break apart the application and the library.
+
+* Send `IRCCommand` objects to the `IRCConnection` instead of sending
+  it raw `String`s.

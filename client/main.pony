@@ -10,11 +10,9 @@ class MyIRCMessageHandler is IRCMessageHandler
     _join_channel = join_channel
 
   fun ref connected(conn: IRCConnection) =>
-    let commands = Array[String]
-    commands.push(IRCCommand.nick(_nick))
-    commands.push(IRCCommand.user("Pony Robot"))
-    commands.push(IRCCommand.join(_join_channel))
-    conn.write("".join(commands.values()))
+    conn.send(IRCCommandFactory.nick(_nick))
+    conn.send(IRCCommandFactory.user("Pony Robot"))
+    conn.send(IRCCommandFactory.join(_join_channel))
 
   fun ref privmsg(conn: IRCConnection tag, prefix: String, args: Array[String] val) =>
     Debug("  PRIVMSG")
@@ -24,7 +22,7 @@ class MyIRCMessageHandler is IRCMessageHandler
       Debug("      arg(" + i.string() + "): '" + arg + "'")
     end
     if (try args(1)?.contains(_nick) else false end) then
-      conn.write(IRCCommand.privmsg(_join_channel, "hello"))
+      conn.send(IRCCommandFactory.privmsg(_join_channel, "hello"))
     end
     None
 

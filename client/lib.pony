@@ -1,26 +1,89 @@
 use "net"
 use "debug"
 
-primitive IRCCommand
-  fun nick(n: String, old_nick: (None | String) = None): String =>
-    let prefix = match old_nick
-      | let s: String => ":" + s + " "
-      else
-        ""
-      end
-    prefix + "NICK " + n + "\r\n"
+trait val IRCCommand
+  fun command_string(): String
 
-  fun user(real_name: String, client: String = "pony_client"): String =>
-    "USER " + client + " 0 * " + ":" + real_name  + "\r\n"
+class val Nick is IRCCommand
+  let _nick: String
 
-  fun pong(server: String): String =>
-    "PONG " + server + "\r\n"
+  new val create(nick: String) =>
+    _nick = nick
 
-  fun join(channel: String): String =>
-    "JOIN :#" + channel + "\r\n"
+  fun command_string(): String =>
+    "NICK " + _nick + "\r\n"
 
-  fun privmsg(channel: String, message: String): String =>
-    "PRIVMSG #" + channel + " :" + message + "\r\n"
+class val ChangeNick is IRCCommand
+  let _nick: String
+  let _old_nick: String
+
+  new val create(nick: String, old_nick: String) =>
+    _nick = nick
+    _old_nick = old_nick
+
+  fun command_string(): String =>
+    ":" + _old_nick + " NICK " + _nick + "\r\n"
+
+class val User is IRCCommand
+  let _client: String
+  let _real_name: String
+
+  new val create(client: String, real_name: String) =>
+    _client = client
+    _real_name = real_name
+
+  fun command_string(): String =>
+    "USER " + _client + " 0 * " + ":" + _real_name  + "\r\n"
+
+class val Pong is IRCCommand
+  let _server: String
+
+  new val create(server: String) =>
+    _server = server
+
+  fun command_string(): String =>
+    "PONG " + _server + "\r\n"
+
+class val Join is IRCCommand
+  let _channel: String
+
+  new val create(channel: String) =>
+    _channel = channel
+
+  fun command_string(): String =>
+    "JOIN :#" + _channel + "\r\n"
+
+class val PrivMsg is IRCCommand
+  let _channel: String
+  let _message: String
+
+  new val create(channel: String, message: String) =>
+    _channel = channel
+    _message = message
+
+  fun command_string(): String =>
+    "PRIVMSG #" + _channel + " :" + _message + "\r\n"
+
+primitive IRCCommandFactory
+  fun nick(n: String, old_nick: (None | String) = None): IRCCommand =>
+    match old_nick
+    | let s: String =>
+      ChangeNick(n, s)
+    else
+      Nick(n)
+    end
+
+  fun user(real_name: String, client: String = "pony_client"): IRCCommand =>
+    User(real_name, client)
+
+  fun pong(server: String): IRCCommand =>
+    Pong(server)
+
+  fun join(channel: String): IRCCommand =>
+    Join(channel)
+
+  fun privmsg(channel: String, message: String): IRCCommand =>
+    PrivMsg(channel, message)
 
 trait IRCMessageHandler
   fun ref connected(conn: IRCConnection) =>
@@ -34,7 +97,7 @@ trait IRCMessageHandler
 
   fun ref ping(conn: IRCConnection, prefix: String, args: Array[String] val) =>
     try
-      conn.write(IRCCommand.pong(args(0) ?))
+      conn.send(IRCCommandFactory.pong(args(0) ?))
     else
       None
     end
@@ -122,8 +185,8 @@ actor IRCConnection
       recover IRCTCPConnectionNotify(this, consume irc_message_handler) end,
       "irc.freenode.net", "6667")
 
-  be write(s: String) =>
-    _tcp_connection.write(s)
+  be send(c: IRCCommand) =>
+    _tcp_connection.write(c.command_string())
 
 class IRCTCPConnectionNotify is TCPConnectionNotify
   let _irc_parser: IRCParser = IRCParser
